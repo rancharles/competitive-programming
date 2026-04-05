@@ -301,3 +301,370 @@ template <class T, bool VALS_IN_EDGES> class HLD {
 // 		}
 // 	}
 // }
+
+/**
+ * DATASTRUCTURE: Rooted Link Cut Tree
+ * PURPOSE: LCT but rooted, no-rerooting, good for storing per-component info through root keys
+ * TIME: Amortized O(log n)
+ * SOURCE: ChatGPT-written template, but stress-tested for correctness
+ */
+namespace rlct {
+    struct SNode {
+        SNode *ch[2], *p, *pp;
+
+        int siz;    // aux subtree size
+        int vsiz;   // virtual contribution size
+        int subsz;  // total contribution of aux subtree + virtuals
+
+        ll val;
+        ll sum; // aux subtree sum
+        ll vir; // virtual contribution sum
+        ll sub; // total contribution of aux subtree + virtuals
+
+        SNode(long long _val = 0)
+            : ch{nullptr, nullptr}, p(nullptr), pp(nullptr),
+              siz(1), vsiz(0), subsz(1),
+              val(_val), sum(_val), vir(0), sub(_val) {}
+    };
+
+    int gs(SNode* x) { return x ? x->siz : 0; }
+    int gsubsz(SNode* x) { return x ? x->subsz : 0; }
+    ll gsum(SNode* x) { return x ? x->sum : 0; }
+    ll gsub(SNode* x) { return x ? x->sub : 0; }
+
+    void pull(SNode* x) {
+        if (!x) return;
+        x->siz = 1 + gs(x->ch[0]) + gs(x->ch[1]);
+        x->sum = x->val + gsum(x->ch[0]) + gsum(x->ch[1]);
+
+        // total contribution of the whole auxiliary subtree segment
+        x->subsz = 1 + gsubsz(x->ch[0]) + gsubsz(x->ch[1]) + x->vsiz;
+        x->sub   = x->val + gsub(x->ch[0]) + gsub(x->ch[1]) + x->vir;
+    }
+
+    bool is_aux_root(SNode* x) {
+        return !x->p || (x->p->ch[0] != x && x->p->ch[1] != x);
+    }
+
+    bool side(SNode* x) {
+        return x->p->ch[1] == x;
+    }
+
+    void attach(SNode* p, SNode* c, int d) {
+        if (p) p->ch[d] = c;
+        if (c) c->p = p;
+    }
+
+    void rotate(SNode* x) {
+        SNode* p = x->p;
+        SNode* g = p->p;
+        int dx = side(x);
+
+        if (!is_aux_root(p)) {
+            attach(g, x, side(p));
+        } else {
+            x->p = nullptr;
+        }
+
+        attach(p, x->ch[dx ^ 1], dx);
+        attach(x, p, dx ^ 1);
+
+        x->pp = p->pp;
+        p->pp = nullptr;
+
+        pull(p);
+        pull(x);
+    }
+
+    void splay(SNode* x) {
+        while (!is_aux_root(x)) {
+            SNode* p = x->p;
+            if (!is_aux_root(p)) {
+                if (side(x) == side(p)) rotate(p);
+                else rotate(x);
+            }
+            rotate(x);
+        }
+        pull(x);
+    }
+
+    void detach_right(SNode* x) {
+        if (x->ch[1]) {
+            SNode* r = x->ch[1];
+            r->pp = x;
+            r->p = nullptr;
+
+            x->vsiz += r->subsz;
+            x->vir += r->sub;
+
+            x->ch[1] = nullptr;
+            pull(x);
+        }
+    }
+
+    void attach_right_preferred(SNode* x, SNode* c) {
+        if (c) {
+            x->vsiz -= c->subsz;
+            x->vir -= c->sub;
+            attach(x, c, 1);
+        } else {
+            x->ch[1] = nullptr;
+        }
+        pull(x);
+    }
+
+    SNode* access(SNode* x) {
+        splay(x);
+        detach_right(x);
+
+        SNode* last = x;
+        while (x->pp) {
+            SNode* w = x->pp;
+            last = w;
+            splay(w);
+            detach_right(w);
+
+            x->pp = nullptr;
+            attach_right_preferred(w, x);
+
+            splay(x);
+        }
+        return last;
+    }
+
+    SNode* make_node(long long val = 0) {
+        return new SNode(val);
+    }
+
+    SNode* find_root(SNode* x) {
+        access(x);
+        while (x->ch[0]) x = x->ch[0];
+        access(x);
+        return x;
+    }
+
+    bool connected(SNode* u, SNode* v) {
+        return find_root(u) == find_root(v);
+    }
+
+    void cut(SNode* x) {
+        access(x);
+        assert(x->ch[0] != nullptr);
+        x->ch[0]->p = nullptr;
+        x->ch[0] = nullptr;
+        pull(x);
+    }
+
+    void link(SNode* child, SNode* par) {
+        assert(!connected(par, child));
+        access(child);
+        assert(child->ch[0] == nullptr); // child must be represented-tree root
+        access(par);
+        attach(child, par, 0);
+        pull(child);
+    }
+
+    SNode* lca(SNode* u, SNode* v) {
+        if (!connected(u, v)) return nullptr;
+        access(u);
+        return access(v);
+    }
+
+    int dist_root(SNode* x) {
+        access(x);
+        return x->siz - 1;
+    }
+
+    int dist(SNode* u, SNode* v) {
+        SNode* a = lca(u, v);
+        if (!a) return -1;
+        return dist_root(u) + dist_root(v) - 2 * dist_root(a);
+    }
+
+    void add_val(SNode* x, long long delta) {
+        access(x);
+        x->val += delta;
+        pull(x);
+    }
+
+    void set_val(SNode* x, long long v) {
+        access(x);
+        x->val = v;
+        pull(x);
+    }
+
+    // root -> x path sum
+    long long path_sum_root(SNode* x) {
+        access(x);
+        return x->sum;
+    }
+
+    // u -> v path sum
+    long long path_sum(SNode* u, SNode* v) {
+        SNode* a = lca(u, v);
+        if (!a) return 0;
+        return path_sum_root(u) + path_sum_root(v) - 2 * path_sum_root(a) + a->val;
+    }
+
+    // represented subtree of x
+    int subtree_size(SNode* x) {
+        access(x);
+        return 1 + x->vsiz;
+    }
+
+    long long subtree_sum(SNode* x) {
+        access(x);
+        return x->val + x->vir;
+    }
+} using namespace rlct;
+
+/**
+ * DATASTRUCTURE: Link Cut Tree
+ * PURPOSE: Maintains properties of rooted forests
+ * SOURCE: Benq
+ * TIME: Amortized O(log n)
+ */
+typedef struct snode *sn;
+struct snode {         //////// VARIABLES
+	sn p, c[2];        // parent, children
+	bool flip = 0;     // subtree flipped or not
+	int sz;            // # nodes in current splay tree
+	ll sub, vsub = 0;  // vsub stores sum of virtual children
+	ll val;            // value in node
+	snode(int _val) : val(_val) {
+		p = c[0] = c[1] = NULL;
+		calc();
+	}
+	friend int getSz(sn x) { return x ? x->sz : 0; }
+	friend ll getSub(sn x) { return x ? x->sub : 0; }
+	void prop() {  // lazy prop
+		if (!flip) return;
+		swap(c[0], c[1]);
+		flip = 0;
+		for (int i = 0; i < 2; i++)
+			if (c[i]) c[i]->flip ^= 1;
+	}
+	void calc() {  // recalc vals
+		for (int i = 0; i < 2; i++)
+			if (c[i]) c[i]->prop();
+		sz = 1 + getSz(c[0]) + getSz(c[1]);
+		sub = val + getSub(c[0]) + getSub(c[1]) + vsub;
+	}
+	//////// SPLAY TREE OPERATIONS
+	int dir() {
+		if (!p) return -2;
+		for (int i = 0; i < 2; i++)
+			if (p->c[i] == this) return i;
+		return -1;  // p is path-parent pointer
+	}  // -> not in current splay tree
+	// test if root of current splay tree
+	bool isRoot() { return dir() < 0; }
+	friend void setLink(sn x, sn y, int d) {
+		if (y) y->p = x;
+		if (d >= 0) x->c[d] = y;
+	}
+	void rot() {  // assume p and p->p propagated
+		assert(!isRoot());
+		int x = dir();
+		sn pa = p;
+		setLink(pa->p, this, pa->dir());
+		setLink(pa, c[x ^ 1], x);
+		setLink(this, pa, x ^ 1);
+		pa->calc();
+	}
+	void splay() {
+		while (!isRoot() && !p->isRoot()) {
+			p->p->prop(), p->prop(), prop();
+			dir() == p->dir() ? p->rot() : rot();
+			rot();
+		}
+		if (!isRoot()) p->prop(), prop(), rot();
+		prop();
+		calc();
+	}
+	sn fbo(int b) {  // find by order
+		prop();
+		int z = getSz(c[0]);  // of splay tree
+		if (b == z) {
+			splay();
+			return this;
+		}
+		return b < z ? c[0]->fbo(b) : c[1]->fbo(b - z - 1);
+	}
+	//////// BASE OPERATIONS
+	void access() {  // bring this to top of tree, propagate
+		for (sn v = this, pre = NULL; v; v = v->p) {
+			v->splay();  // now switch virtual children
+			if (pre) v->vsub -= pre->sub;
+			if (v->c[1]) v->vsub += v->c[1]->sub;
+			v->c[1] = pre;
+			v->calc();
+			pre = v;
+		}
+		splay();
+		assert(!c[1]);  // right subtree is empty
+	}
+	void makeRoot() {
+		access();
+		flip ^= 1;
+		access();
+		assert(!c[0] && !c[1]);
+	}
+	//////// QUERIES
+	friend sn lca(sn x, sn y) {
+		if (x == y) return x;
+		x->access(), y->access();
+		if (!x->p) return NULL;
+		x->splay();
+		return x->p ?: x;  // y was below x in latter case
+	}  // access at y did not affect x -> not connected
+	friend bool connected(sn x, sn y) { return lca(x, y); }
+	// # nodes above
+	int distRoot() {
+		access();
+		return getSz(c[0]);
+	}
+	sn getRoot() {  // get root of LCT component
+		access();
+		sn a = this;
+		while (a->c[0]) a = a->c[0], a->prop();
+		a->access();
+		return a;
+	}
+	sn getPar(int b) {  // get b-th parent on path to root
+		access();
+		b = getSz(c[0]) - b;
+		assert(b >= 0);
+		return fbo(b);
+	}  // can also get min, max on path to root, etc
+	//////// MODIFICATIONS
+	void set(int v) {
+		access();
+		val = v;
+		calc();
+	}
+	friend void link(sn x, sn y, bool force = 0) {
+		assert(!connected(x, y));
+		if (force) y->makeRoot();  // make x par of y
+		else {
+			y->access();
+			assert(!y->c[0]);
+		}
+		x->access();
+		setLink(y, x, 0);
+		y->calc();
+	}
+	friend void cut(sn y) {  // cut y from its parent
+		y->access();
+		assert(y->c[0]);
+		y->c[0]->p = NULL;
+		y->c[0] = NULL;
+		y->calc();
+	}
+	friend void cut(sn x, sn y) {  // if x, y adj in tree
+		x->makeRoot();
+		y->access();
+		assert(y->c[0] == x && !x->c[0] && !x->c[1]);
+		cut(y);
+	}
+};

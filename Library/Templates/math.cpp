@@ -581,6 +581,102 @@ template<class T, int N> struct Matrix {
 	}
 };
 
+/**
+ * ALGORITHM: Gaussian Elimination with Prime Modulo
+ * PURPOSE: Solves linear system for arbitrary solution. Returns rank or -1 if no solution.
+ * TIME: O(n^3)
+ * SOURCE: KACTL
+*/
+ll modpow(ll a, ll e) {
+    ll r = 1;
+    while (e > 0) {
+        if (e & 1) r = r * a % MOD;
+        a = a * a % MOD;
+        e >>= 1;
+    }
+    return r;
+}
+ll inv(ll a) {
+    a %= MOD;
+    if (a < 0) a += MOD;
+    return modpow(a, MOD - 2);
+}
+int solveLinear(vector<vl>& A, vl& b, vl& x) {
+    int n = sz(A), m = sz(x), rank = 0;
+    if (n) assert(sz(A[0]) == m);
+
+    vi col(m);
+    iota(all(col), 0);
+
+    rep(i, 0, n) {
+        int br = -1, bc = -1;
+
+        for (int r = i; r < n && br == -1; r++) {
+            for (int c = i; c < m; c++) {
+                ll v = A[r][c] % MOD;
+                if (v < 0) v += MOD;
+                if (v != 0) {
+                    br = r;
+                    bc = c;
+                    break;
+                }
+            }
+        }
+
+        if (br == -1) {
+            rep(j, i, n) {
+                ll bj = b[j] % MOD;
+                if (bj < 0) bj += MOD;
+                if (bj != 0) return -1;
+            }
+            break;
+        }
+
+        swap(A[i], A[br]);
+        swap(b[i], b[br]);
+        swap(col[i], col[bc]);
+        rep(j, 0, n) swap(A[j][i], A[j][bc]);
+
+        ll invPivot = inv(A[i][i]);
+
+        rep(j, i + 1, n) {
+            ll fac = A[j][i] % MOD;
+            if (fac < 0) fac += MOD;
+            fac = fac * invPivot % MOD;
+
+            b[j] = (b[j] - fac * b[i]) % MOD;
+            if (b[j] < 0) b[j] += MOD;
+
+            rep(k, i + 1, m) {
+                A[j][k] = (A[j][k] - fac * A[i][k]) % MOD;
+                if (A[j][k] < 0) A[j][k] += MOD;
+            }
+
+            A[j][i] = 0;
+        }
+
+        rank++;
+        if (rank == m) break;
+    }
+
+    x.assign(m, 0);
+
+    for (int i = rank - 1; i >= 0; i--) {
+        ll rhs = b[i] % MOD;
+        if (rhs < 0) rhs += MOD;
+
+        rep(j, i + 1, rank) {
+            rhs = (rhs - A[i][j] * b[j]) % MOD;
+            if (rhs < 0) rhs += MOD;
+        }
+
+        b[i] = rhs * inv(A[i][i]) % MOD;
+        x[col[i]] = b[i];
+    }
+
+    return rank;
+}
+
 int main(){
     ios_base::sync_with_stdio(0);
     cin.tie(0); cout.tie(0);
